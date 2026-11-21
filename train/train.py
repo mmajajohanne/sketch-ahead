@@ -73,7 +73,7 @@ def main():
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step()
             for k in sums:
-                sums[k] += float(losses[k])
+                sums[k] += losses[k].detach().item()
             if step % 100 == 0:
                 avg = {k: v / step for k, v in sums.items()}
                 print(f"epoch {epoch} step {step}  " + "  ".join(f"{k}={v:.3f}" for k, v in avg.items()))
