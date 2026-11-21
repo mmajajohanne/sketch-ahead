@@ -1,8 +1,6 @@
 # sketch-ahead
 
-> A drawing app that guesses what you are drawing **before you finish**, shows how its belief evolves stroke by stroke, and sketches a faint "ghost" of how it thinks your drawing will continue.
-
-*Status: early development (milestone 1–2).*
+A drawing app that guesses what you are drawing **before you finish**, shows how its belief evolves stroke by stroke, and sketches a faint "ghost" of how it thinks your drawing will continue.
 
 ---
 
@@ -10,46 +8,29 @@
 
 You draw on a canvas in the browser. After every stroke the app:
 
-1. **Guesses the class** (cat, dog, owl, …) from the incomplete drawing.
-2. **Shows its belief over time**: a live chart of class probabilities and uncertainty (entropy) per stroke, marks the stroke where it "made up its mind", and highlights which stroke made it change its guess.
-3. **Draws the rest for you**: a faint ghost completion of the drawing for the top 1–2 guesses, so you can *see* what the model thinks you are drawing, and see it fail when it guesses wrong.
+1. Guesses the class from the incomplete drawing.
+2. Shows its belief over time: a live chart of class probabilities and uncertainty (entropy) per stroke, marks the stroke where it "made up its mind", and highlights which stroke made it change its guess.
+3. Draws the rest for you: a faint ghost completion of the drawing for the top 1–2 guesses
 
-Everything runs client-side in the browser. No backend.
+Everything runs client-side in the browser, so no backend (yet?)
 
 ## What makes it different
 
-Most sketch classifiers answer a single question: *what is this finished drawing?* This project treats drawing as a **sequential state-estimation problem**:
+This project aims to treat the drawing as a sequential state-estimation problem
 
-- **Belief tracking.** The class distribution is treated as a posterior that is updated with each new stroke, much like a recursive filter in sensor fusion. The interesting output is the *trajectory* of the belief, not just the final answer.
-- **Future-state prediction.** The ghost completion is a prediction of where the sequence is going. The model is not just labelling the past, it is forecasting what comes next (related to the world-model idea).
-- **Measured earliness.** The main evaluation is *how early* the model is correct and stable, not just accuracy on finished drawings.
+- **Belief tracking:** The class distribution is treated as a posterior that is updated with each new stroke. The interesting output is the trajectory of the belief.
+- **Future-state prediction:** The ghost completion is a prediction of where the sequence is going. The model is labelling the past and forecasting what comes next.
+- **Measured earliness:** The main evaluation is how early the model is correct and stable, not just accuracy on finished drawings.
 
 ---
 
 ## Architecture
 
-One causal sequence model with **two heads**, both computed in the same forward pass, point by point.
+One causal sequence model with two heads, both computed in the same forward pass, point by point.
 
-```
- Browser                                          Training (Python)
- ─────────────────────────────────────            ─────────────────────────
- <canvas> ── pointer events                        Quick, Draw! (ndjson)
-     │                                                 │
-     ▼                                                 ▼
- Preprocessing (TS)                                Preprocessing (Py)
- RDP simplify → stroke-5 → normalize   ⟷  MUST BE IDENTICAL  ⟷
-     │                                                 │
-     ▼                                                 ▼
- Web Worker: ONNX Runtime Web                      PyTorch model ──► export .onnx
- ┌──────────────────────────────┐
- │  Encoder (causal LSTM)       │
- │    h_t ──┬─► Class head ─────┼──► p(class | strokes so far)   → belief panel
- │          └─► MDN head ───────┼──► p(next point | prefix, class) → ghost sampling
- └──────────────────────────────┘
-     │
-     ▼
- UI: canvas + ghost strokes · belief chart · "decided here" marker
-```
+![Architecture](docs/architecture.png)
+
+*Source: [`docs/architecture.drawio`](docs/architecture.drawio)*
 
 ### Data representation
 
@@ -63,25 +44,25 @@ One causal sequence model with **two heads**, both computed in the same forward 
 | Part | Choice | Reason |
 |---|---|---|
 | Encoder | 2-layer LSTM, 256–512 hidden | Causal by construction; hidden state is carried forward, so each new point costs O(1) in the browser |
-| Class head | Linear → softmax at **every timestep** | Gives p(class \| prefix) for free; no manual prefix slicing needed |
-| Generator head | Mixture Density Network: ~20 bivariate Gaussians for (Δx, Δy) + 3-way softmax for pen state | Well-proven approach for sketch generation (Sketch-RNN style) |
+| Class head | Linear → softmax at every timestep | Gives p(class \| prefix) for free so no manual prefix slicing needed |
+| Generator head | Mixture Density Network: ~20 bivariate Gaussians for (Δx, Δy) + 3-way softmax for pen state | .. |
 | Class conditioning | Class embedding fed into the generator head | Lets the app draw the ghost "as a cat" and "as a dog" side by side |
 
-A small transformer is a possible later alternative. LSTM is chosen first because stateful inference and ONNX export are simpler.
+A small transformer is a possible later alternative. LSTM was chosen first because stateful inference and ONNX export are simpler.
 
 ### Training
 
 - **Loss** = `CE(class)` at all timesteps + `MDN-NLL(next point)` + `CE(pen state)`.
-- Classification loss at every timestep means the model is trained on **all prefixes** of every drawing automatically. This is the core of "guess before it's done".
-- The generator gets the **true class** during training (teacher forcing) and the model's **top-k guesses** at inference.
-- **Post-hoc calibration** with temperature scaling on a validation set. Without it, the belief chart looks nice but is not honest.
+- Classification loss at every timestep means the model is trained on all prefixes of every drawing automatically. 
+- The generator gets the true class during training and the model's top-k guesses at inference.
+- **Post-hoc calibration** with temperature scaling on a validation set.
 
 ### Belief layer
 
 - After each stroke: log `p_t(class)` and entropy `H_t`, and plot both against stroke index.
-- **Decision with hysteresis:** the app only "commits" to a class when `max p > τ` for `k` consecutive strokes (same idea as debouncing a noisy sensor signal).
+- **Decision with hysteresis:** the app only "commits" to a class when `max p > τ` for `k` consecutive strokes
 - **Stroke attribution:** `Δp_t = p_t(c) − p_{t−1}(c)`. The stroke with the largest jump toward the final class is highlighted on the canvas.
-- **Design note:** the softmax output of a causal model already *is* the posterior given the prefix. No extra Bayesian update is applied on top, since that would count the evidence twice.
+- **Design note:** the softmax output of a causal model already is the posterior given the prefix. No extra Bayesian update is applied on top, since that would count the evidence twice.
 
 ### Ghost completion
 
@@ -92,7 +73,7 @@ A small transformer is a possible later alternative. LSTM is chosen first becaus
 ### Frontend
 
 - Vite + TypeScript, `<canvas>` with pointer events.
-- ONNX Runtime Web inside a **Web Worker** so the UI never stalls. The model signature is `(point, h, c) → (class_logits, mdn_params, h', c')`.
+- ONNX Runtime Web inside a Web Worker. The model signature is `(point, h, c) → (class_logits, mdn_params, h', c')`.
 - Preprocessing lives in one module, unit-tested against reference examples exported from the Python pipeline.
 
 ---
@@ -108,7 +89,7 @@ A small transformer is a possible later alternative. LSTM is chosen first becaus
 
 ---
 
-## Milestones
+## Process
 
 1. **Data pipeline:** download, stroke-5 conversion, normalization, augmentation, with Python tests.
 2. **Class head only:** train and check the accuracy-per-prefix curve.
@@ -116,8 +97,6 @@ A small transformer is a possible later alternative. LSTM is chosen first becaus
 4. **Browser app + belief panel:** ONNX export, canvas, worker, belief chart.
 5. **Ghost completion:** autoregressive sampling in the worker, rendering on canvas.
 6. **Polish:** calibration, evaluation figures, UI.
-
-Steps 1–2 and 4 are the quick part. Steps 3 and 5 are where the real work is.
 
 ## Repository structure
 
@@ -158,15 +137,8 @@ python train.py                  # both heads
 - **Inference:** ONNX Runtime Web in a Web Worker
 - **Frontend:** Vite, TypeScript, Canvas API
 
-## Open questions
-
-- Can one shared LSTM produce good ghost completions for ~20 classes, or does the generator need to be trained separately (or per class)? This can only be answered at milestone 3.
-- Good values for the commit threshold `τ` and hysteresis length `k`. To be tuned on validation data against the earliness metric.
-- Whether canvas-size normalization plus augmentation is enough, or whether a running bounding-box normalization works better for partial drawings.
-
 ## Possible extensions
 
-- **Air drawing with a phone:** draw in the air using the phone's IMU (DeviceMotion API), possibly trained on synthetic IMU signals generated from Quick, Draw! strokes (sim-to-real).
 - **Few-shot custom classes:** draw something 5 times and the model learns to recognize it (embeddings / prototypical networks).
 - **Bluff mode:** try to draw a cat that the model does *not* recognize until the very end.
 
