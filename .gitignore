@@ -2,6 +2,7 @@
 train/raw/
 *.ndjson
 checkpoints/
+train/outputs/
 *.pt
 
 # Python

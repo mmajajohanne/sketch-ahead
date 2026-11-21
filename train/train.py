@@ -37,6 +37,8 @@ def main():
     ap.add_argument("--per-class", type=int, default=config.PER_CLASS)
     ap.add_argument("--no-generator", action="store_true",
                     help="train only the class head (milestone 2)")
+    ap.add_argument("--init", type=Path, default=None,
+                    help="start from this checkpoint (e.g. a class-head-only run)")
     ap.add_argument("--workers", type=int, default=2)
     args = ap.parse_args()
 
@@ -56,7 +58,12 @@ def main():
         num_classes=len(config.CLASSES), hidden=config.HIDDEN, layers=config.LAYERS,
         class_emb=config.CLASS_EMB, n_mix=config.N_MIX, dropout=config.DROPOUT,
     ).to(device)
-    opt = torch.optim.Adam(model.parameters(), lr=args.lr)
+    if args.init is not None:
+        ckpt = torch.load(args.init, map_location=device)
+        assert ckpt["classes"] == config.CLASSES, "checkpoint was trained on other classes"
+        model.load_state_dict(ckpt["model"])
+        print(f"initialized from {args.init} (epoch {ckpt['epoch']})")
+    opt =torch.optim.Adam(model.parameters(), lr=args.lr)
     w_gen = 0.0 if args.no_generator else 1.0
 
     out = Path(args.out)
