@@ -1,0 +1,18 @@
+# Data and training outputs
+train/raw/
+*.ndjson
+checkpoints/
+*.pt
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Web
+node_modules/
+web/dist/
+
+# OS
+.DS_Store
