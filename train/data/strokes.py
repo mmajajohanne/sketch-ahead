@@ -8,8 +8,9 @@ Representations
 points   (N, 3) float32: absolute (x, y, lift), lift = 1 on the last point
          of each stroke. Coordinates are in canvas units.
 stroke-5 (max_len, 5) float32: (dx, dy, p_down, p_lift, p_end) per row.
-         - dx, dy: offset from the previous point. The first point is offset
-           from the canvas centre (0.5, 0.5), so start position is kept.
+         - dx, dy: offset from the previous point, divided by OFFSET_SCALE.
+           The first point is offset from the canvas centre (0.5, 0.5), so
+           start position is kept.
          - p_down: pen stays down after this point (next point is same stroke)
          - p_lift: pen is lifted after this point (end of a stroke)
          - p_end:  drawing is finished; all padding rows are end tokens.
@@ -22,6 +23,12 @@ import numpy as np
 # NOT by each drawing's bounding box: that box is unknown mid-drawing.
 CANVAS = 256.0
 ORIGIN = np.array([0.5, 0.5], dtype=np.float32)
+
+# Std of (dx, dy) in normalized coordinates, measured on the training set
+# (≈ 0.12 / 0.10 for x / y, 0.11 joint). Offsets in stroke-5 are divided by
+# this so they have roughly unit scale, which the MDN head needs to learn
+# useful mixture components (Sketch-RNN does the same).
+OFFSET_SCALE = 0.11
 
 # Start-of-sequence token fed to the model before the first point.
 SOS = np.array([0.0, 0.0, 1.0, 0.0, 0.0], dtype=np.float32)
@@ -78,7 +85,7 @@ def to_stroke5(points: np.ndarray, max_len: int):
         raise ValueError(f"need 0 < n < max_len, got n={n}, max_len={max_len}")
     seq = np.zeros((max_len, 5), dtype=np.float32)
     xy = np.vstack([ORIGIN, points[:, :2]])
-    seq[:n, 0:2] = np.diff(xy, axis=0)
+    seq[:n, 0:2] = np.diff(xy, axis=0) / OFFSET_SCALE
     lift = points[:, 2]
     seq[:n, 2] = 1.0 - lift
     seq[:n, 3] = lift
@@ -91,5 +98,5 @@ def stroke5_to_points(seq: np.ndarray) -> np.ndarray:
     seq = np.asarray(seq, dtype=np.float32)
     end = np.flatnonzero(seq[:, 4] > 0.5)
     n = int(end[0]) if len(end) else len(seq)
-    xy = np.cumsum(seq[:n, 0:2], axis=0) + ORIGIN
+    xy = np.cumsum(seq[:n, 0:2] * OFFSET_SCALE, axis=0) + ORIGIN
     return np.column_stack([xy, seq[:n, 3]]).astype(np.float32)
