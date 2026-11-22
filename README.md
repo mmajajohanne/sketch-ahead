@@ -1,9 +1,5 @@
 # sketch-ahead
 
-A drawing app that guesses what you are drawing **before you finish**, shows how its belief evolves stroke by stroke, and sketches a faint "ghost" of how it thinks your drawing will continue.
-
----
-
 ## What it does
 
 You draw on a canvas in the browser. After every stroke the app:
