@@ -1,0 +1,63 @@
+{
+  "classes": [
+    "cat",
+    "dog",
+    "pig",
+    "lion",
+    "owl",
+    "bear",
+    "rabbit",
+    "mouse",
+    "house",
+    "bicycle"
+  ],
+  "temperature": 1.0357706546783447,
+  "canvas": 256.0,
+  "origin": [
+    0.5,
+    0.5
+  ],
+  "offset_scale": 0.11,
+  "sos": [
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0
+  ],
+  "max_len": 200,
+  "hidden": 256,
+  "layers": 2,
+  "n_mix": 20,
+  "mdn_layout": {
+    "pi_logits": [
+      0,
+      20
+    ],
+    "mu_x": [
+      20,
+      40
+    ],
+    "mu_y": [
+      40,
+      60
+    ],
+    "log_sigma_x": [
+      60,
+      80
+    ],
+    "log_sigma_y": [
+      80,
+      100
+    ],
+    "rho_raw (tanh, clamp +-0.999)": [
+      100,
+      120
+    ],
+    "pen_logits (down, lift, end)": [
+      120,
+      123
+    ]
+  },
+  "opset": 17
+}
