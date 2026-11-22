@@ -31,4 +31,8 @@ HIDDEN = 256
 LAYERS = 2
 CLASS_EMB = 32
 N_MIX = 20
-DROPOUT = 0.1
+# Must stay 0.0 while training on Apple MPS: with inter-layer dropout > 0,
+# PyTorch 2.8's MPS LSTM reuses its training graph for later eval calls, so
+# the model learns a function that a standard LSTM (CPU, ONNX, browser) does
+# not reproduce. See tests/test_mps.py.
+DROPOUT = 0.0
