@@ -55,15 +55,39 @@ def test_model_is_causal():
 
 
 def test_stateful_steps_match_full_sequence():
-    """Feeding points one by one (as the browser will) equals one full pass."""
+    """Feeding points one by one (as the browser will) equals one full pass,
+    for both the classifier and the generator."""
     m = small_model().eval()
     x = torch.randn(1, T, 5)
-    full, _, _ = m(x)
-    state, steps = None, []
+    cls = torch.tensor([2])
+    full, full_mdn, _ = m(x, cls)
+    state, steps, mdns = None, [], []
     for t in range(T):
-        logits, _, state = m(x[:, t:t + 1], state=state)
+        logits, mdn, state = m(x[:, t:t + 1], cls, state=state)
         steps.append(logits)
+        mdns.append(mdn)
     torch.testing.assert_close(torch.cat(steps, 1), full)
+    torch.testing.assert_close(torch.cat(mdns, 1), full_mdn)
+
+
+def test_generator_uses_class_at_every_step():
+    """The class reaches the generator's recurrent state, not only its output
+    layer: with the output layer's class weights zeroed, the class still matters."""
+    m = small_model().eval()
+    with torch.no_grad():
+        m.mdn_head.weight[:, m.lstm.hidden_size:] = 0
+    x = torch.randn(1, T, 5)
+    a, _ = m.generate(x, torch.tensor([0]))
+    b, _ = m.generate(x, torch.tensor([1]))
+    assert not torch.allclose(a[:, -1], b[:, -1])
+
+
+def test_classifier_ignores_class():
+    m = small_model().eval()
+    x = torch.randn(1, T, 5)
+    a, _, _ = m(x, torch.tensor([0]))
+    b, _, _ = m(x, torch.tensor([1]))
+    torch.testing.assert_close(a, b)
 
 
 def test_dataset_and_losses(tmp_path):

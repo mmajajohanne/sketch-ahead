@@ -29,22 +29,22 @@ def _prefix(T=12, seed=0):
 
 def test_onnx_matches_torch_full_and_stepwise(tmp_path):
     model = _tiny()
-    path = tmp_path / "m.onnx"
-    export(model, temperature=1.7, path=path)
-    assert verify(path, model, 1.7, _prefix(), cls=2) < 1e-4
+    export(model, temperature=1.7, out_dir=tmp_path)
+    assert verify(tmp_path, model, 1.7, _prefix(), cls=2) < 1e-4
 
 
 def test_onnx_dynamic_batch(tmp_path):
     import onnxruntime as ort
 
     model = _tiny()
-    path = tmp_path / "m.onnx"
-    export(model, 1.0, path)
-    sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+    export(model, 1.0, tmp_path)
+    sess = lambda n: ort.InferenceSession(str(tmp_path / n), providers=["CPUExecutionProvider"])  # noqa: E731
     x = np.stack([_prefix(seed=0), _prefix(seed=1)])
     h = np.zeros((2, 2, 16), np.float32)
-    probs, mdn, h1, _ = sess.run(None, {"x": x, "cls": np.array([0, 3]), "h0": h, "c0": h})
-    assert probs.shape == (2, 13, 4) and mdn.shape == (2, 13, 6 * 3 + 3) and h1.shape == (2, 2, 16)
+    probs, h1, _ = sess("classifier.onnx").run(None, {"x": x, "h0": h, "c0": h})
+    mdn, g1, _ = sess("generator.onnx").run(None, {"x": x, "cls": np.array([0, 3]), "h0": h, "c0": h})
+    assert probs.shape == (2, 13, 4) and h1.shape == g1.shape == (2, 2, 16)
+    assert mdn.shape == (2, 13, 6 * 3 + 3)
     np.testing.assert_allclose(probs.sum(-1), 1.0, atol=1e-5)
 
 

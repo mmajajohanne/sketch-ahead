@@ -43,7 +43,7 @@ function onStroke(raw: Pt[]) {
 
 function feed(index: number, ghost: boolean) {
   pending++;
-  send({ type: "stroke", id: generation * 10000 + index, rows: strokes[index].rows, ghost });
+  send({ type: "stroke", id: generation * 10000 + index, rows: strokes[index].rows, ghost, start: strokes[index].last });
   render();
 }
 
@@ -68,9 +68,9 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     if (Math.floor(msg.id / 10000) !== generation) return;
     pending--;
     history.add(msg.probs);
-    if (msg.ghost && msg.id % 10000 === strokes.length - 1) {
+    if (msg.id % 10000 === strokes.length - 1) {
       const start = strokes[strokes.length - 1].last;
-      canvas.setGhost({ start, points: rowsToPoints(msg.ghost.rows, start) });
+      canvas.setGhost(msg.ghost?.rows.length ? { start, points: rowsToPoints(msg.ghost.rows, start) } : null);
     }
     const points = strokes.reduce((n, s) => n + s.rows.length, 0);
     status.textContent =

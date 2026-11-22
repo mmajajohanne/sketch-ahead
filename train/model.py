@@ -1,10 +1,18 @@
-"""Causal LSTM with a class head and a class-conditioned MDN head.
+"""Two causal LSTMs over the same stroke-5 input: a classifier and a
+class-conditioned generator.
 
-    x_t (stroke-5) ──► LSTM ──► h_t ──┬─► class_head ──► logits_t        (belief)
-                                      └─► [h_t ; emb(c)] ─► mdn_head ─► params_t (ghost)
+    x_t ──────────────► LSTM ──► h_t ──► class_head ──► logits_t        (belief)
+    [x_t ; emb(c)] ───► gen LSTM ──► g_t ──► mdn_head ──► params_t      (ghost)
 
-Both heads read the same hidden state, so one forward step per new point
-gives both the belief update and the next-point distribution.
+v1 had one shared LSTM with the class embedding only at the MDN head. The
+generator then barely used the class (telling it the wrong class cost only
+0.13 nats per point) and drifted after a few strokes, because the recurrent
+state that has to carry "what is left to draw" never knew what was being
+drawn. Here the generator gets the class at every step, Sketch-RNN style,
+and has its own state, so it does not share capacity with the classifier.
+
+The generator state depends on the class, so when the top guess changes the
+generator must be rerun over the prefix (one batched call; cheap).
 """
 
 import math
@@ -29,27 +37,37 @@ class SketchAhead(nn.Module):
         super().__init__()
         self.num_classes = num_classes
         self.n_mix = n_mix
-        self.lstm = nn.LSTM(
-            5, hidden, layers, batch_first=True,
-            dropout=dropout if layers > 1 else 0.0,
-        )
+        drop = dropout if layers > 1 else 0.0
+        self.lstm = nn.LSTM(5, hidden, layers, batch_first=True, dropout=drop)
         self.class_head = nn.Linear(hidden, num_classes)
         self.class_emb = nn.Embedding(num_classes, class_emb)
+        self.gen_lstm = nn.LSTM(5 + class_emb, hidden, layers, batch_first=True, dropout=drop)
         self.mdn_head = nn.Linear(hidden + class_emb, 6 * n_mix + 3)
 
-    def forward(self, x, cls=None, state=None):
-        """x: (B, T, 5). cls: (B,) long or None (skip the generator head).
-
-        Returns class logits (B, T, C), MDN params (B, T, 6M+3) or None, and
-        the LSTM state (for stateful step-by-step inference).
-        """
+    def classify(self, x, state=None):
+        """x: (B, T, 5) -> class logits (B, T, C), classifier LSTM state."""
         h, state = self.lstm(x, state)
-        logits = self.class_head(h)
+        return self.class_head(h), state
+
+    def generate(self, x, cls, state=None):
+        """x: (B, T, 5), cls: (B,) -> MDN params (B, T, 6M+3), generator state."""
+        e = self.class_emb(cls)[:, None, :].expand(-1, x.size(1), -1)
+        g, state = self.gen_lstm(torch.cat([x, e], dim=-1), state)
+        return self.mdn_head(torch.cat([g, e], dim=-1)), state
+
+    def forward(self, x, cls=None, state=None):
+        """x: (B, T, 5). cls: (B,) long or None (skip the generator).
+
+        `state` is (classifier_state, generator_state); either may be None.
+        Returns class logits (B, T, C), MDN params (B, T, 6M+3) or None, and
+        the new state pair (for stateful step-by-step inference).
+        """
+        cs, gs = state if state is not None else (None, None)
+        logits, cs = self.classify(x, cs)
         mdn = None
         if cls is not None:
-            e = self.class_emb(cls)[:, None, :].expand(-1, h.size(1), -1)
-            mdn = self.mdn_head(torch.cat([h, e], dim=-1))
-        return logits, mdn, state
+            mdn, gs = self.generate(x, cls, gs)
+        return logits, mdn, (cs, gs)
 
 
 def mdn_split(params, n_mix: int):
@@ -98,7 +116,7 @@ def sample_continuation(
     x = torch.cat([sos, prefix], dim=0)[None]
     c = torch.tensor([cls], device=device)
 
-    _, mdn, state = model(x, c)
+    mdn, state = model.generate(x, c)
     params = mdn[0, -1]
     out = []
     for _ in range(max_steps):
@@ -115,7 +133,7 @@ def sample_continuation(
         row = torch.zeros(5, device=device)
         row[0], row[1], row[2 + pen] = dx, dy, 1.0
         out.append(row)
-        _, mdn, state = model(row[None, None], c, state)
+        mdn, state = model.generate(row[None, None], c, state)
         params = mdn[0, -1]
     if not out:
         return torch.zeros(0, 5)

@@ -1,24 +1,27 @@
-"""Export the trained model to ONNX for the browser (milestone 5).
+"""Export the trained model to ONNX for the browser.
 
-The exported graph is stateful, so the web worker can run one step per new
-point and carry the LSTM state between calls:
+Two stateful graphs, so the web worker can run them separately:
 
-    inputs   x      float32 (B, T, 5)   stroke-5 rows (start with SOS)
-             cls    int64   (B,)        class whose ghost to generate
-             h0     float32 (L, B, H)   LSTM state (zeros at the start)
-             c0     float32 (L, B, H)
-    outputs  probs  float32 (B, T, C)   calibrated softmax(logits / T)
-             mdn    float32 (B, T, 6M+3) raw MDN params (layout in model.json)
-             h1, c1 float32 (L, B, H)   state after the last step
+classifier.onnx  (fed once per new stroke, state carried between calls)
+    inputs   x      float32 (B, T, 5)    stroke-5 rows (start with SOS)
+             h0, c0 float32 (L, B, H)    LSTM state (zeros at the start)
+    outputs  probs  float32 (B, T, C)    calibrated softmax(logits / T)
+             h1, c1 float32 (L, B, H)    state after the last step
 
-T is dynamic, so the same model also replays a whole prefix in one call (on
-undo, or to restart a ghost from a saved state). The temperature from
-calibrate.py is baked into `probs`. Everything the browser preprocessing must
-match (canvas size, origin, offset scale, SOS, class list) goes into
-model.json next to the .onnx file.
+generator.onnx   (rerun over the prefix for the current top class, then
+                  stepped one sampled point at a time)
+    inputs   x      float32 (B, T, 5)
+             cls    int64   (B,)         class whose ghost to generate
+             h0, c0 float32 (L, B, H)
+    outputs  mdn    float32 (B, T, 6M+3) raw MDN params (layout in model.json)
+             h1, c1 float32 (L, B, H)
+
+T is dynamic. The temperature from calibrate.py is baked into `probs`.
+Everything the browser preprocessing must match (canvas size, origin, offset
+scale, SOS, class list) goes into model.json next to the .onnx files.
 
 Usage (from train/):
-    python export_onnx.py --ckpt checkpoints/gen-long/last.pt
+    python export_onnx.py --ckpt checkpoints/v3/last.pt
 """
 
 import argparse
@@ -35,18 +38,29 @@ from sample import load_model
 
 OPSET = 17
 WEB_PUBLIC = Path(__file__).resolve().parent.parent / "web" / "public"
+STATE_AXES = {1: "batch"}
+SEQ_AXES = {0: "batch", 1: "steps"}
 
 
-class StepModel(nn.Module):
+class ClassifierStep(nn.Module):
     def __init__(self, model, temperature: float = 1.0):
         super().__init__()
         self.model = model
         self.register_buffer("inv_t", torch.tensor(1.0 / temperature))
 
+    def forward(self, x, h0, c0):
+        logits, (h1, c1) = self.model.classify(x, (h0, c0))
+        return torch.softmax(logits * self.inv_t, dim=-1), h1, c1
+
+
+class GeneratorStep(nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
     def forward(self, x, cls, h0, c0):
-        logits, mdn, (h1, c1) = self.model(x, cls, (h0, c0))
-        probs = torch.softmax(logits * self.inv_t, dim=-1)
-        return probs, mdn, h1, c1
+        mdn, (h1, c1) = self.model.generate(x, cls, (h0, c0))
+        return mdn, h1, c1
 
 
 def zero_state(model, batch: int = 1):
@@ -54,29 +68,25 @@ def zero_state(model, batch: int = 1):
     return torch.zeros(shape), torch.zeros(shape)
 
 
-def export(model, temperature: float, path: Path):
+def export(model, temperature: float, out_dir: Path):
+    """Writes classifier.onnx and generator.onnx to `out_dir`."""
     model = model.cpu().eval()
-    step = StepModel(model, temperature).eval()
+    out_dir.mkdir(parents=True, exist_ok=True)
     x = torch.as_tensor(SOS)[None, None].repeat(1, 3, 1)
     cls = torch.zeros(1, dtype=torch.long)
     h0, c0 = zero_state(model)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    state_axes = {"h0": STATE_AXES, "c0": STATE_AXES, "h1": STATE_AXES, "c1": STATE_AXES}
     torch.onnx.export(
-        step, (x, cls, h0, c0), str(path),
-        input_names=["x", "cls", "h0", "c0"],
-        output_names=["probs", "mdn", "h1", "c1"],
-        dynamic_axes={
-            "x": {0: "batch", 1: "steps"},
-            "cls": {0: "batch"},
-            "h0": {1: "batch"},
-            "c0": {1: "batch"},
-            "probs": {0: "batch", 1: "steps"},
-            "mdn": {0: "batch", 1: "steps"},
-            "h1": {1: "batch"},
-            "c1": {1: "batch"},
-        },
-        opset_version=OPSET,
-        dynamo=False,
+        ClassifierStep(model, temperature).eval(), (x, h0, c0), str(out_dir / "classifier.onnx"),
+        input_names=["x", "h0", "c0"], output_names=["probs", "h1", "c1"],
+        dynamic_axes={"x": SEQ_AXES, "probs": SEQ_AXES, **state_axes},
+        opset_version=OPSET, dynamo=False,
+    )
+    torch.onnx.export(
+        GeneratorStep(model).eval(), (x, cls, h0, c0), str(out_dir / "generator.onnx"),
+        input_names=["x", "cls", "h0", "c0"], output_names=["mdn", "h1", "c1"],
+        dynamic_axes={"x": SEQ_AXES, "cls": {0: "batch"}, "mdn": SEQ_AXES, **state_axes},
+        opset_version=OPSET, dynamo=False,
     )
 
 
@@ -102,36 +112,44 @@ def metadata(model, classes, temperature: float) -> dict:
             "rho_raw (tanh, clamp +-0.999)": [5 * m, 6 * m],
             "pen_logits (down, lift, end)": [6 * m, 6 * m + 3],
         },
+        "files": {"classifier": "classifier.onnx", "generator": "generator.onnx"},
         "opset": OPSET,
     }
 
 
-def verify(path: Path, model, temperature: float, prefix: np.ndarray, cls: int = 0, atol: float = 1e-4) -> float:
-    """Compare onnxruntime with PyTorch on `prefix` (T, 5, SOS first), both
-    in one call and one step at a time with the state carried over. Returns
-    the largest absolute difference; raises if it exceeds `atol`."""
+def _compare(sess, feed_extra, step, x, h, c, n_seq_out):
+    """Max |onnx - torch| for one full call and for T single-step calls."""
+    with torch.no_grad():
+        ref = [t.numpy() for t in step(x, *feed_extra.values(), h, c)]
+    extra = {k: v.numpy() for k, v in feed_extra.items()}
+
+    def run(xs, hs, cs):
+        return sess.run(None, {"x": xs, **extra, "h0": hs, "c0": cs})
+
+    full = run(x.numpy(), h.numpy(), c.numpy())
+    worst = max(np.abs(a - b).max() for a, b in zip(full, ref))
+    hs, cs, seq = h.numpy(), c.numpy(), [[] for _ in range(n_seq_out)]
+    for t in range(x.shape[1]):
+        *outs, hs, cs = run(x[:, t:t + 1].numpy(), hs, cs)
+        for i, o in enumerate(outs):
+            seq[i].append(o)
+    stepped = [np.concatenate(s, 1) for s in seq] + [hs, cs]
+    return max(worst, max(np.abs(a - b).max() for a, b in zip(stepped, ref)))
+
+
+def verify(out_dir: Path, model, temperature: float, prefix: np.ndarray, cls: int = 0, atol: float = 1e-4) -> float:
+    """Compare onnxruntime with PyTorch on `prefix` (T, 5, SOS first) for both
+    graphs, in one call and step by step. Raises if a difference exceeds atol."""
     import onnxruntime as ort
 
-    sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
-    step = StepModel(model.cpu().eval(), temperature).eval()
+    model = model.cpu().eval()
     x = torch.as_tensor(prefix, dtype=torch.float32)[None]
-    c = torch.tensor([cls])
-    h, cc = zero_state(model)
-    with torch.no_grad():
-        ref = [t.numpy() for t in step(x, c, h, cc)]
-
-    feed = lambda xs, h, c_: {"x": xs, "cls": c.numpy(), "h0": h, "c0": c_}  # noqa: E731
-    full = sess.run(None, feed(x.numpy(), h.numpy(), cc.numpy()))
-    worst = max(np.abs(a - b).max() for a, b in zip(full, ref))
-
-    hs, cs = h.numpy(), cc.numpy()
-    probs, mdn = [], []
-    for t in range(x.shape[1]):
-        p, m, hs, cs = sess.run(None, feed(x[:, t:t + 1].numpy(), hs, cs))
-        probs.append(p)
-        mdn.append(m)
-    stepped = [np.concatenate(probs, 1), np.concatenate(mdn, 1), hs, cs]
-    worst = max(worst, max(np.abs(a - b).max() for a, b in zip(stepped, ref)))
+    h, c = zero_state(model)
+    sess = lambda name: ort.InferenceSession(str(out_dir / name), providers=["CPUExecutionProvider"])  # noqa: E731
+    worst = max(
+        _compare(sess("classifier.onnx"), {}, ClassifierStep(model, temperature).eval(), x, h, c, 1),
+        _compare(sess("generator.onnx"), {"cls": torch.tensor([cls])}, GeneratorStep(model).eval(), x, h, c, 1),
+    )
     if worst > atol:
         raise AssertionError(f"ONNX differs from PyTorch by {worst:.2e} (atol {atol})")
     return float(worst)
@@ -154,19 +172,21 @@ def main():
         print(f"warning: {cal} not found, exporting without calibration (T = 1)")
         temperature = 1.0
 
-    onnx_path = args.out_dir / "model.onnx"
-    export(model, temperature, onnx_path)
+    export(model, temperature, args.out_dir)
     (args.out_dir / "model.json").write_text(json.dumps(metadata(model, classes, temperature), indent=2) + "\n")
+    old = args.out_dir / "model.onnx"  # single-graph export from v1/v2
+    if old.exists():
+        old.unlink()
 
     # Check on a real validation drawing, not only random input.
     from data.dataset import QuickDrawDataset
 
     ds = QuickDrawDataset(args.raw_dir, classes, split="val", max_len=config.MAX_LEN, per_class=50)
     x, _, n, label = ds[0]
-    worst = verify(onnx_path, model, temperature, x[: int(n) + 1].numpy(), cls=int(label))
-    size = onnx_path.stat().st_size / 1e6
-    print(f"saved {onnx_path} ({size:.1f} MB) and model.json, T = {temperature:.3f}, "
-          f"max |onnx - torch| = {worst:.1e}")
+    worst = verify(args.out_dir, model, temperature, x[: int(n) + 1].numpy(), cls=int(label))
+    size = sum((args.out_dir / f).stat().st_size for f in ("classifier.onnx", "generator.onnx")) / 1e6
+    print(f"saved classifier.onnx + generator.onnx ({size:.1f} MB) and model.json to {args.out_dir}, "
+          f"T = {temperature:.3f}, max |onnx - torch| = {worst:.1e}")
 
 
 if __name__ == "__main__":

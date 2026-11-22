@@ -1,4 +1,4 @@
-import type { Row } from "./preprocess";
+import type { Pt, Row } from "./preprocess";
 
 /** Contents of public/model.json (written by train/export_onnx.py). */
 export interface ModelMeta {
@@ -17,8 +17,9 @@ export interface ModelMeta {
 export type ToWorker =
   /** Forget the drawing: zero LSTM state, next stroke starts with SOS. */
   | { type: "reset" }
-  /** Feed one finished stroke. `ghost`: also sample a continuation. */
-  | { type: "stroke"; id: number; rows: Row[]; ghost: boolean };
+  /** Feed one finished stroke. `ghost`: also sample a continuation, which
+   * starts at `start` (the stroke's last point, normalized). */
+  | { type: "stroke"; id: number; rows: Row[]; ghost: boolean; start: Pt };
 
 export type FromWorker =
   | { type: "ready"; meta: ModelMeta; backend: string }
