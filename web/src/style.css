@@ -1,73 +1,71 @@
+/* Deliberately plain: browser default font, flat colours, thick borders. */
 :root {
-  --bg: #f7f6f3;
-  --panel: #ffffff;
-  --ink: #1d1d1f;
-  --muted: #6b6b70;
-  --line: #e2e0da;
-  --ghost: #9a9aa3;
-  --accent: #e0662a;
-  --up: #2f9e5b;
-  --down: #d14a4a;
-  --c0: #e0662a; --c1: #3a78c2; --c2: #d65a9c; --c3: #c9a227; --c4: #7b5cc4;
-  --c5: #8a5a3c; --c6: #2f9e8f; --c7: #6f7d8c; --c8: #c43d3d; --c9: #4f9e3a;
-  color-scheme: light dark;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --bg: #ffd1e3;
+  --ink: #111;
+  --muted: #444;
+  --line: #111;
+  --grid: #c9c2a0;
+  --ghost: #8a3ffc;
+  --accent: #ff2d7a;
+  --up: #1aa34a;
+  --down: #e8392f;
+  --draw-bg: #bfe6ff;
+  --belief-bg: #fff;
+  --c0: #ff6b00; --c1: #0077ff; --c2: #ff3fa4; --c3: #e0a800; --c4: #8a3ffc;
+  --c5: #9c5a2e; --c6: #00a896; --c7: #5c6b7a; --c8: #e8392f; --c9: #3cb44b;
+  color-scheme: light;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #161618;
-    --panel: #202023;
-    --ink: #ececef;
-    --muted: #9a9aa3;
-    --line: #34343a;
-    --ghost: #77777f;
-  }
-}
-* { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); }
-header { max-width: 1100px; margin: 0 auto; padding: 24px 16px 8px; }
-h1 { margin: 0; font-size: 1.6rem; letter-spacing: -0.01em; }
-.sub { margin: 4px 0 0; color: var(--muted); }
+header { max-width: 1100px; margin: 0 auto; padding: 20px 16px 0; }
+h1 { margin: 0; font-size: 2.6rem; color: var(--c1); }
+.sub { margin: 4px 0 0; font-size: 1.1rem; }
 main {
   max-width: 1100px; margin: 0 auto; padding: 16px;
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px;
 }
 @media (max-width: 800px) { main { grid-template-columns: minmax(0, 1fr); } }
-section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
+section { border: 3px solid var(--line); padding: 14px; min-width: 0; box-shadow: 6px 6px 0 var(--line); }
+.draw { background: var(--draw-bg); }
+.belief { background: var(--belief-bg); }
 canvas {
   display: block; width: 100%; aspect-ratio: 1; touch-action: none; cursor: crosshair;
-  background: var(--panel); border: 1px dashed var(--line); border-radius: 8px;
+  background: #fff; border: 3px solid var(--line);
 }
-.tools { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+.tools { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
 button {
-  font: inherit; color: var(--ink); background: transparent; border: 1px solid var(--line);
-  border-radius: 8px; padding: 6px 14px; cursor: pointer;
+  font: inherit; font-size: 1rem; color: var(--ink); border: 2px solid var(--line);
+  padding: 4px 14px; cursor: pointer; box-shadow: 3px 3px 0 var(--line);
 }
-button:hover { border-color: var(--muted); }
-.toggle { margin-left: auto; display: flex; gap: 6px; align-items: center; color: var(--muted); }
-.status { color: var(--muted); font-size: 0.85rem; margin: 10px 0 0; min-height: 1.2em; }
-.guess { font-size: 1.4rem; margin: 0; min-height: 1.6em; }
-.decided { color: var(--muted); margin: 4px 0 0; min-height: 1.2em; }
-h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 20px 0 8px; font-weight: 600; }
-.chart { width: 100%; height: auto; display: block; }
-.chart .grid { stroke: var(--line); }
-.chart .stroke-end { stroke: var(--line); stroke-dasharray: 2 3; }
-.chart .decided { stroke: var(--ink); stroke-width: 1.5; }
-.chart .axis { fill: var(--muted); font-size: 11px; }
-.chart .belief-line { fill: none; stroke-width: 2; }
-.chart .line-label { font-size: 12px; font-weight: 600; }
+button:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--line); }
+#undo { background: #ffd23f; }
+#clear { background: #ff8fab; }
+.toggle { margin-left: auto; display: flex; gap: 6px; align-items: center; font-size: 1.1rem; }
+.toggle input { width: 18px; height: 18px; accent-color: var(--ghost); }
+.status { font-size: 0.95rem; margin: 10px 0 0; min-height: 1.2em; color: var(--muted); }
+.guess { font-size: 1.8rem; margin: 0; min-height: 1.4em; }
+.decided { margin: 4px 0 0; min-height: 1.2em; font-style: italic; }
+h2 { font-size: 1.15rem; margin: 18px 0 6px; }
+.chart { width: 100%; height: auto; display: block; background: #fff; border: 2px solid var(--line); }
+.chart .grid { stroke: var(--grid); }
+.chart .stroke-end { stroke: var(--grid); stroke-dasharray: 2 3; }
+.chart .decided { stroke: var(--ink); stroke-width: 2; }
+.chart .axis { fill: var(--muted); font-size: 12px; }
+.chart .belief-line { fill: none; stroke-width: 3; }
+.chart .line-label { font-size: 14px; font-weight: bold; }
 .strokes { display: flex; gap: 4px; flex-wrap: wrap; align-items: flex-end; min-height: 48px; }
 .attr {
   display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
-  gap: 2px; width: 26px; height: 48px; padding: 2px; border-color: transparent;
+  gap: 2px; width: 28px; height: 50px; padding: 2px; background: transparent;
+  border-color: transparent; box-shadow: none;
 }
-.attr:hover, .attr:focus-visible { border-color: var(--line); }
-.attr-bar { width: 12px; border-radius: 2px; }
+.attr:hover, .attr:focus-visible { border-color: var(--line); background: #fff; }
+.attr:active { transform: none; box-shadow: none; }
+.attr-bar { width: 14px; border: 1px solid var(--line); }
 .attr-bar.up { background: var(--up); }
 .attr-bar.down { background: var(--down); }
-.attr-label { font-size: 10px; color: var(--muted); }
-.bars { display: grid; gap: 4px; }
-.bar { display: grid; grid-template-columns: 70px 1fr 40px; gap: 8px; align-items: center; font-size: 0.9rem; }
-.bar-track { height: 10px; background: var(--line); border-radius: 5px; overflow: hidden; }
-.bar-fill { display: block; height: 100%; border-radius: 5px; transition: width 0.2s; }
-.bar-val { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.attr-label { font-size: 12px; }
+.bars { display: grid; gap: 5px; }
+.bar { display: grid; grid-template-columns: 70px 1fr 44px; gap: 8px; align-items: center; }
+.bar-track { height: 14px; background: #fff; border: 2px solid var(--line); overflow: hidden; }
+.bar-fill { display: block; height: 100%; transition: width 0.2s; }
+.bar-val { text-align: right; font-variant-numeric: tabular-nums; }
