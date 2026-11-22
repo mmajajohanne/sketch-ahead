@@ -3,15 +3,19 @@
     "cat",
     "dog",
     "pig",
-    "lion",
     "owl",
     "bear",
     "rabbit",
     "mouse",
     "house",
-    "bicycle"
+    "bicycle",
+    "sun",
+    "tree",
+    "flower",
+    "fish",
+    "car"
   ],
-  "temperature": 1.0357706546783447,
+  "temperature": 1.081906795501709,
   "canvas": 256.0,
   "origin": [
     0.5,

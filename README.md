@@ -31,7 +31,7 @@ One causal sequence model with two heads, both computed in the same forward pass
 ### Data representation
 
 - **Dataset:** Google's open [Quick, Draw! dataset](https://github.com/googlecreativelab/quickdraw-dataset), *simplified* ndjson (already RDP-simplified, stored as stroke sequences).
-- **Classes:** start with 10–20, deliberately including classes that look alike early on (cat, dog, pig, lion, owl…) so the belief chart has something interesting to show.
+- **Classes:** start with 10–20, deliberately including classes that look alike early on (cat, dog, pig, owl…) so the belief chart has something interesting to show.
 - **Format:** stroke-5 per point: `(Δx, Δy, p_down, p_up, p_end)`.
 - **Normalization (known pitfall):** the dataset scales each drawing by its *finished* bounding box, which is unknown during live drawing. Normalize by **canvas size** instead, and train with random scale/shift augmentation so the model is robust to how big and where people draw.
 

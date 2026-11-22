@@ -1,22 +1,27 @@
 """Shared configuration for training.
 
 The class list deliberately mixes classes that look alike early in a drawing
-(cat / dog / pig / lion / owl / bear / rabbit / mouse: they all start with a
-round head) with a couple of clearly different ones, so the belief chart has
-something interesting to show.
+(cat / dog / pig / owl / bear / rabbit / mouse: they all start with a round
+head) with clearly different ones (house, bicycle, sun, tree, flower, fish,
+car), so the belief chart has something interesting to show and the app is
+fun to draw in.
 """
 
 CLASSES = [
     "cat",
     "dog",
     "pig",
-    "lion",
     "owl",
     "bear",
     "rabbit",
     "mouse",
     "house",
     "bicycle",
+    "sun",
+    "tree",
+    "flower",
+    "fish",
+    "car",
 ]
 
 # Max number of points per drawing (after RDP simplification in the dataset).
