@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>sketch-ahead</title>
+    <meta name="description" content="Guesses what you draw before you finish, and sketches how it might continue." />
+  </head>
+  <body>
+    <header>
+      <h1>sketch-ahead</h1>
+      <p class="sub">Guesses what you draw before you finish, and sketches how it might continue.</p>
+    </header>
+    <main>
+      <section class="draw">
+        <canvas id="canvas" aria-label="Drawing canvas"></canvas>
+        <div class="tools">
+          <button id="undo" type="button">Undo</button>
+          <button id="clear" type="button">Clear</button>
+          <label class="toggle"><input id="ghost-toggle" type="checkbox" checked /> Ghost</label>
+        </div>
+        <p id="status" class="status">Loading model…</p>
+      </section>
+      <section class="belief">
+        <p id="guess" class="guess"></p>
+        <p id="decided" class="decided"></p>
+        <h2>Belief after every point</h2>
+        <svg id="chart" class="chart" role="img" aria-label="Class probabilities over the drawing"></svg>
+        <h2>What each stroke did for the top guess</h2>
+        <div id="strokes" class="strokes"></div>
+        <h2>All classes</h2>
+        <div id="bars" class="bars"></div>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
